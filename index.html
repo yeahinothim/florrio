@@ -14,9 +14,9 @@
         #lobby-list { list-style: none; padding: 0; }
         #lobby-list li { padding: 5px; cursor: pointer; }
         #lobby-list li.active { background: #555; }
-        #users, #friends { margin-bottom: 10px; }
-        #user-list, #friend-list { list-style: none; padding: 0; }
-        #user-list li, #friend-list li { padding: 5px; cursor: pointer; }
+        #users, #pending-reqs, #friends { margin-bottom: 10px; }
+        #user-list, #pending-list, #friend-list { list-style: none; padding: 0; }
+        #user-list li, #pending-list li, #friend-list li { padding: 5px; cursor: pointer; }
         #messages { flex: 1; padding: 10px; overflow-y: auto; background: white; border: 1px solid #ccc; }
         #input-area { display: flex; padding: 10px; background: #eee; }
         #message-input { flex: 1; padding: 5px; margin-right: 5px; }
@@ -28,6 +28,7 @@
         input, button { margin-bottom: 10px; padding: 5px; }
         button { background: #007bff; color: white; border: none; cursor: pointer; }
         button:hover { background: #0056b3; }
+        button.small { font-size: 0.8em; padding: 2px 5px; margin-left: 5px; }
     </style>
 </head>
 <body>
@@ -52,10 +53,13 @@
                 <h3>Users Online</h3>
                 <ul id="user-list"></ul>
             </div>
+            <div id="pending-reqs">
+                <h3>Pending Requests</h3>
+                <ul id="pending-list"></ul>
+            </div>
             <div id="friends">
                 <h3>Friends</h3>
                 <ul id="friend-list"></ul>
-                <button id="refresh-friends">Refresh</button>
             </div>
             <button id="logout">Logout</button>
         </div>
@@ -68,76 +72,181 @@
         </div>
     </div>
 
-    <script>
-        // Data structures (saved to localStorage)
-        let currentUser = null;
-        let lobbies = JSON.parse(localStorage.getItem('lobbies')) || { global: { messages: [], users: [] } };
-        let users = JSON.parse(localStorage.getItem('users')) || {};
-        let friends = JSON.parse(localStorage.getItem('friends')) || {};
-        let friendRequests = JSON.parse(localStorage.getItem('friendRequests')) || {};
+    <script type="module">
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
+        import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
+        import { getDatabase, ref, set, get, update, push, onValue, onChildAdded, onDisconnect } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js';
 
-        // Save data
-        function saveData() {
-            localStorage.setItem('lobbies', JSON.stringify(lobbies));
-            localStorage.setItem('users', JSON.stringify(users));
-            localStorage.setItem('friends', JSON.stringify(friends));
-            localStorage.setItem('friendRequests', JSON.stringify(friendRequests));
+        // REPLACE WITH YOUR FIREBASE CONFIG
+        const firebaseConfig = {
+            // apiKey: "your-api-key",
+            // authDomain: "your-project.firebaseapp.com",
+            // databaseURL: "https://your-project-default-rtdb.firebaseio.com",
+            // projectId: "your-project",
+            // storageBucket: "your-project.appspot.com",
+            // messagingSenderId: "123",
+            // appId: "your-app-id"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getDatabase(app);
+
+        let currentUser = null;
+        let currentUsername = null;
+        let currentLobby = 'global';
+        let currentPriv = null;
+        let lobbiesData = {};
+        let onlineUsers = {}; // uid: username
+        let myFriends = [];
+        let pendingReqs = [];
+        let unsubscribeFuncs = [];
+        let currentMessagesListener = null;
+
+        // Attach real-time listeners
+        function attachListeners() {
+            unsubscribeFuncs.forEach(unsub => unsub());
+            unsubscribeFuncs = [];
+
+            // Lobbies
+            const lobbiesUnsub = onValue(ref(db, 'lobbies'), (snap) => {
+                lobbiesData = snap.val() || {};
+                updateLobbies();
+            });
+            unsubscribeFuncs.push(lobbiesUnsub);
+
+            // Online users
+            const usersUnsub = onValue(ref(db, 'users'), (snap) => {
+                onlineUsers = {};
+                snap.forEach((child) => {
+                    const data = child.val();
+                    if (data.online) {
+                        onlineUsers[child.key] = data.username;
+                    }
+                });
+                updateUsers();
+            });
+            unsubscribeFuncs.push(usersUnsub);
+
+            // My friends
+            const friendsUnsub = onValue(ref(db, `friends/${currentUsername}`), (snap) => {
+                myFriends = snap.val() || [];
+                updateFriends();
+                updateUsers(); // Refresh friend req buttons
+            });
+            unsubscribeFuncs.push(friendsUnsub);
+
+            // Pending requests
+            const pendingUnsub = onValue(ref(db, `friendRequests/${currentUsername}`), (snap) => {
+                pendingReqs = snap.val() || [];
+                updatePending();
+            });
+            unsubscribeFuncs.push(pendingUnsub);
+
+            // Set online and handle disconnect
+            const userRef = ref(db, `users/${currentUser.uid}`);
+            update(userRef, { online: true }).then(() => {
+                onDisconnect(userRef).set({ online: false });
+            });
+        }
+
+        function detachListeners() {
+            unsubscribeFuncs.forEach(unsub => unsub());
+            unsubscribeFuncs = [];
+            if (currentMessagesListener) {
+                currentMessagesListener();
+                currentMessagesListener = null;
+            }
         }
 
         // Auth
-        document.getElementById('auth-form').addEventListener('submit', (e) => {
+        document.getElementById('auth-form').addEventListener('submit', async (e) => {
             e.preventDefault();
-            const username = document.getElementById('username').value;
+            const username = document.getElementById('username').value.trim();
             const password = document.getElementById('password').value;
-            if (users[username] && users[username].password === password) {
-                currentUser = { name: username, online: true };
-                users[username].online = true;
-                saveData();
-                showChat();
-            } else {
+            const email = `${username}@globalchat.app`;
+            try {
+                await signInWithEmailAndPassword(auth, email, password);
+            } catch (err) {
                 alert('Invalid credentials');
             }
         });
 
-        document.getElementById('register-btn').addEventListener('click', () => {
-            const username = document.getElementById('username').value;
+        document.getElementById('register-btn').addEventListener('click', async () => {
+            const username = document.getElementById('username').value.trim();
             const password = document.getElementById('password').value;
-            if (!users[username]) {
-                users[username] = { password, online: true };
-                currentUser = { name: username, online: true };
-                saveData();
+            if (!username || !password) return;
+            const email = `${username}@globalchat.app`;
+            try {
+                const cred = await createUserWithEmailAndPassword(auth, email, password);
+                await set(ref(db, `users/${cred.user.uid}`), { username, online: true });
+            } catch (err) {
+                if (err.code === 'auth/email-already-in-use') {
+                    alert('Username taken');
+                } else {
+                    alert(err.message);
+                }
+            }
+        });
+
+        // Auth state change
+        onAuthStateChanged(auth, (user) => {
+            if (user) {
+                currentUser = user;
+                currentUsername = user.email.split('@')[0];
+                attachListeners();
                 showChat();
             } else {
-                alert('Username taken');
+                detachListeners();
+                currentUser = null;
+                currentUsername = null;
+                showLogin();
             }
         });
 
         function showChat() {
             document.getElementById('login').style.display = 'none';
             document.getElementById('chat').style.display = 'flex';
-            updateUI();
+            updateLobbies();
+            updateMessages();
+        }
+
+        function showLogin() {
+            document.getElementById('chat').style.display = 'none';
+            document.getElementById('login').style.display = 'flex';
+            document.getElementById('username').value = '';
+            document.getElementById('password').value = '';
+        }
+
+        // Ensure lobby exists
+        async function ensureLobby(name) {
+            const lobbyRef = ref(db, `lobbies/${name}`);
+            const snap = await get(lobbyRef);
+            if (!snap.exists()) {
+                await set(lobbyRef, { messages: {} });
+            }
         }
 
         // Lobbies
-        let currentLobby = 'global';
-        document.getElementById('create-lobby').addEventListener('click', () => {
+        document.getElementById('create-lobby').addEventListener('click', async () => {
             const name = document.getElementById('new-lobby').value.trim();
-            if (name && !lobbies[name]) {
-                lobbies[name] = { messages: [], users: [] };
-                saveData();
-                updateLobbies();
+            if (name && !lobbiesData[name]) {
+                await set(ref(db, `lobbies/${name}`), { messages: {} });
+                document.getElementById('new-lobby').value = '';
             }
         });
 
         function updateLobbies() {
+            ensureLobby(currentLobby);
             const list = document.getElementById('lobby-list');
             list.innerHTML = '';
-            Object.keys(lobbies).forEach(lobby => {
+            Object.keys(lobbiesData).forEach((lobby) => {
                 const li = document.createElement('li');
                 li.textContent = lobby;
                 li.classList.toggle('active', lobby === currentLobby);
                 li.addEventListener('click', () => {
                     currentLobby = lobby;
+                    currentPriv = lobby.startsWith('priv_') ? lobby.split('_')[1] || lobby.split('_')[2] : null;
                     updateLobbies();
                     updateMessages();
                 });
@@ -149,19 +258,74 @@
         function updateUsers() {
             const list = document.getElementById('user-list');
             list.innerHTML = '';
-            Object.keys(users).filter(u => users[u].online && u !== currentUser.name).forEach(user => {
+            Object.values(onlineUsers).filter(u => u !== currentUsername).forEach((user) => {
                 const li = document.createElement('li');
                 li.textContent = user;
                 li.addEventListener('click', () => privMsg(user));
-                // Friend request button
+                if (!myFriends.includes(user)) {
+                    const btn = document.createElement('button');
+                    btn.classList.add('small');
+                    btn.textContent = 'Friend Req';
+                    btn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        sendFriendRequest(user);
+                    });
+                    li.appendChild(btn);
+                }
+                list.appendChild(li);
+            });
+        }
+
+        // Pending requests
+        function updatePending() {
+            const list = document.getElementById('pending-list');
+            list.innerHTML = '';
+            pendingReqs.forEach((requester) => {
+                const li = document.createElement('li');
+                li.textContent = requester;
                 const btn = document.createElement('button');
-                btn.textContent = 'Friend Req';
+                btn.classList.add('small');
+                btn.textContent = 'Accept';
                 btn.addEventListener('click', (e) => {
                     e.stopPropagation();
-                    sendFriendRequest(user);
+                    acceptFriend(requester);
                 });
                 li.appendChild(btn);
                 list.appendChild(li);
+            });
+        }
+
+        function acceptFriend(requester) {
+            // Add to my friends
+            myFriends.push(requester);
+            set(ref(db, `friends/${currentUsername}`), myFriends);
+
+            // Add to their friends
+            get(ref(db, `friends/${requester}`)).then((snap) => {
+                let tf = snap.val() || [];
+                if (!tf.includes(currentUsername)) tf.push(currentUsername);
+                set(ref(db, `friends/${requester}`), tf);
+            });
+
+            // Remove from pending
+            pendingReqs = pendingReqs.filter(p => p !== requester);
+            set(ref(db, `friendRequests/${currentUsername}`), pendingReqs);
+        }
+
+        function sendFriendRequest(to) {
+            if (myFriends.includes(to)) {
+                alert('Already friends');
+                return;
+            }
+            get(ref(db, `friendRequests/${to}`)).then((snap) => {
+                let reqs = snap.val() || [];
+                if (!reqs.includes(currentUsername)) {
+                    reqs.push(currentUsername);
+                    set(ref(db, `friendRequests/${to}`), reqs);
+                    alert(`Friend request sent to ${to}`);
+                } else {
+                    alert('Request already sent');
+                }
             });
         }
 
@@ -169,8 +333,7 @@
         function updateFriends() {
             const list = document.getElementById('friend-list');
             list.innerHTML = '';
-            const myFriends = friends[currentUser.name] || [];
-            myFriends.forEach(friend => {
+            myFriends.forEach((friend) => {
                 const li = document.createElement('li');
                 li.textContent = friend;
                 li.addEventListener('click', () => privMsg(friend));
@@ -178,26 +341,11 @@
             });
         }
 
-        document.getElementById('refresh-friends').addEventListener('click', updateFriends);
-
-        function sendFriendRequest(to) {
-            if (!friendRequests[to]) friendRequests[to] = [];
-            if (!friendRequests[to].includes(currentUser.name)) {
-                friendRequests[to].push(currentUser.name);
-                saveData();
-                alert(`Friend request sent to ${to}`);
-            }
-        }
-
-        // Accept friend request (simplified, check on load or something; for demo, assume manual)
-        // In a real app, this would be notified.
-
         // Private Messaging
-        let currentPriv = null;
         function privMsg(user) {
+            const [u1, u2] = [currentUsername, user].sort();
+            currentLobby = `priv_${u1}_${u2}`;
             currentPriv = user;
-            currentLobby = `priv_${user}`;
-            if (!lobbies[currentLobby]) lobbies[currentLobby] = { messages: [], users: [currentUser.name, user] };
             updateLobbies();
             updateMessages();
         }
@@ -211,59 +359,38 @@
         function sendMessage() {
             const input = document.getElementById('message-input');
             const msg = input.value.trim();
-            if (msg) {
-                if (!lobbies[currentLobby].messages) lobbies[currentLobby].messages = [];
-                lobbies[currentLobby].messages.push({ from: currentUser.name, text: msg, timestamp: Date.now() });
-                if (currentPriv) {
-                    // Simulate sending to other user (in real app, use WebSockets)
-                    console.log(`Private msg to ${currentPriv}: ${msg}`);
-                }
-                saveData();
-                input.value = '';
-                updateMessages();
-            }
+            if (!msg || !currentUsername) return;
+            const messagesRef = ref(db, `lobbies/${currentLobby}/messages`);
+            push(messagesRef, { from: currentUsername, text: msg, timestamp: Date.now() });
+            input.value = '';
         }
 
         function updateMessages() {
-            const div = document.getElementById('messages');
-            div.innerHTML = '';
-            if (lobbies[currentLobby] && lobbies[currentLobby].messages) {
-                lobbies[currentLobby].messages.forEach(m => {
-                    const msgDiv = document.createElement('div');
-                    msgDiv.classList.add('message', m.from === currentUser.name ? 'own' : '');
-                    if (currentPriv) msgDiv.classList.add('private');
-                    msgDiv.innerHTML = `<strong>${m.from}:</strong> ${m.text} <small>${new Date(m.timestamp).toLocaleTimeString()}</small>`;
-                    div.appendChild(msgDiv);
-                });
+            const messagesDiv = document.getElementById('messages');
+            messagesDiv.innerHTML = '';
+            if (currentMessagesListener) {
+                currentMessagesListener();
             }
-            div.scrollTop = div.scrollHeight;
-        }
-
-        // Update UI
-        function updateUI() {
-            updateLobbies();
-            updateUsers();
-            updateFriends();
-            updateMessages();
-            // Poll for updates (in real app, use WebSockets)
-            setInterval(updateUI, 5000);
+            ensureLobby(currentLobby);
+            const messagesRef = ref(db, `lobbies/${currentLobby}/messages`);
+            currentMessagesListener = onChildAdded(messagesRef, (snap) => {
+                const m = snap.val();
+                const msgDiv = document.createElement('div');
+                msgDiv.classList.add('message', m.from === currentUsername ? 'own' : '');
+                if (currentPriv) msgDiv.classList.add('private');
+                msgDiv.innerHTML = `<strong>${m.from}:</strong> ${m.text} <small>${new Date(m.timestamp).toLocaleTimeString()}</small>`;
+                messagesDiv.appendChild(msgDiv);
+                messagesDiv.scrollTop = messagesDiv.scrollHeight;
+            });
         }
 
         // Logout
-        document.getElementById('logout').addEventListener('click', () => {
+        document.getElementById('logout').addEventListener('click', async () => {
             if (currentUser) {
-                users[currentUser.name].online = false;
-                saveData();
+                await update(ref(db, `users/${currentUser.uid}`), { online: false });
+                await signOut(auth);
             }
-            currentUser = null;
-            document.getElementById('chat').style.display = 'none';
-            document.getElementById('login').style.display = 'flex';
-            document.getElementById('username').value = '';
-            document.getElementById('password').value = '';
         });
-
-        // Init
-        if (currentUser) showChat(); // Auto login if already
     </script>
 </body>
 </html>
