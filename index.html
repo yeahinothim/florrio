@@ -1,435 +1,269 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8" />
-<title>Florr.io Clone</title>
-<style>
-  body { margin: 0; overflow: hidden; background: radial-gradient(#a8e4a0, #6b8e23); font-family: Arial, sans-serif; }
-  #game { display: none; margin: 0 auto; border: 2px solid #4b5320; }
-  #ui { position: absolute; top: 10px; left: 10px; color: #fff; text-shadow: 1px 1px 2px #000; }
-  #score, #health { font-size: 24px; margin: 5px; }
-  #health::after { content: '♥'; color: #ff4040; margin-left: 5px; }
-  #start-page { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); color: #fff; display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 10; }
-  #start-page button { margin: 10px; padding: 10px 20px; font-size: 18px; }
-  #password { margin: 10px; padding: 10px; font-size: 18px; display: none; }
-  #chat { position: absolute; bottom: 10px; left: 10px; width: 300px; height: 200px; background: rgba(255,255,255,0.8); overflow-y: scroll; padding: 10px; display: none; }
-  #chat-input { position: absolute; bottom: 220px; left: 10px; width: 300px; padding: 10px; font-size: 16px; display: none; }
-  #inventory { position: absolute; top: 50px; right: 10px; background: rgba(255,255,255,0.8); padding: 10px; display: none; }
-  #admin-panel { position: absolute; top: 100px; left: 350px; background: rgba(255,255,255,0.8); padding: 10px; display: none; }
-  #settings { position: absolute; top: 10px; right: 10px; color: #fff; text-shadow: 1px 1px 2px #000; }
-  #settings button { margin: 5px; }
-</style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Global Chat App</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 0; padding: 0; background-color: #f0f0f0; }
+        #login { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; }
+        #chat { display: none; height: 100vh; display: flex; flex-direction: column; }
+        #sidebar { width: 250px; background: #333; color: white; padding: 10px; overflow-y: auto; }
+        #main { flex: 1; display: flex; flex-direction: column; }
+        #lobbies { margin-bottom: 10px; }
+        #lobby-list { list-style: none; padding: 0; }
+        #lobby-list li { padding: 5px; cursor: pointer; }
+        #lobby-list li.active { background: #555; }
+        #users, #friends { margin-bottom: 10px; }
+        #user-list, #friend-list { list-style: none; padding: 0; }
+        #user-list li, #friend-list li { padding: 5px; cursor: pointer; }
+        #messages { flex: 1; padding: 10px; overflow-y: auto; background: white; border: 1px solid #ccc; }
+        #input-area { display: flex; padding: 10px; background: #eee; }
+        #message-input { flex: 1; padding: 5px; margin-right: 5px; }
+        #send-btn { padding: 5px 10px; }
+        .message { margin-bottom: 5px; padding: 5px; border-bottom: 1px solid #ddd; }
+        .message.own { text-align: right; color: blue; }
+        .private { background: #e0f7fa; }
+        form { display: flex; flex-direction: column; width: 300px; }
+        input, button { margin-bottom: 10px; padding: 5px; }
+        button { background: #007bff; color: white; border: none; cursor: pointer; }
+        button:hover { background: #0056b3; }
+    </style>
 </head>
 <body>
-<div id="start-page">
-  <h1>Welcome to Florr.io Clone</h1>
-  <button id="public-btn">Join Public Lobby</button>
-  <button id="private-btn">Create Private Lobby</button>
-  <input id="password" type="password" placeholder="Enter Password">
-</div>
-<div id="ui">
-  <div id="score">Petals: 0</div>
-  <div id="health">Health: 100</div>
-</div>
-<div id="settings">
-  <button id="admin-btn">Admin Panel</button>
-  <button id="inventory-btn">Inventory (I)</button>
-  <label><input type="checkbox" id="wasd-toggle" checked> Enable WASD</label>
-</div>
-<div id="chat"></div>
-<input id="chat-input" type="text" placeholder="Type message...">
-<div id="inventory">
-  <h3>Inventory</h3>
-  <div id="inv-content"></div>
-</div>
-<div id="admin-panel">
-  <h3>Admin Panel</h3>
-  <select id="player-select">
-    <option>Player1</option>
-    <option>Player2</option>
-    <option>Player3</option>
-  </select>
-  <button onclick="adminAction('kill')">Kill</button>
-  <button onclick="adminAction('mute')">Mute</button>
-  <button onclick="adminAction('ban')">Ban</button>
-  <button onclick="adminAction('kick')">Kick</button>
-  <button onclick="adminAction('unban')">Unban</button>
-  <button onclick="adminAction('unmute')">Unmute</button>
-  <button onclick="adminAction('give-petals')">Give Petals</button>
-  <button onclick="adminAction('hp-set')">Set HP</button>
-  <button onclick="adminAction('dmg')">Set DMG</button>
-  <hr>
-  <select id="spawn-type">
-    <option>petal_common</option>
-    <option>petal_uncommon</option>
-    <option>petal_rare</option>
-    <option>petal_epic</option>
-    <option>petal_legendary</option>
-    <option>bug</option>
-  </select>
-  <button onclick="adminSpawn()">Spawn</button>
-</div>
-<canvas id="game" width="800" height="600"></canvas>
-<script>
-(() => {
-  const canvas = document.getElementById('game');
-  const ctx = canvas.getContext('2d');
-  const worldWidth = 2000;
-  const worldHeight = 2000;
-  let score = 0;
-  let health = 100;
+    <div id="login">
+        <h1>Login / Register</h1>
+        <form id="auth-form">
+            <input type="text" id="username" placeholder="Username" required>
+            <input type="password" id="password" placeholder="Password" required>
+            <button type="submit">Login</button>
+            <button type="button" id="register-btn">Register</button>
+        </form>
+    </div>
+    <div id="chat">
+        <div id="sidebar">
+            <div id="lobbies">
+                <h3>Lobbies</h3>
+                <ul id="lobby-list"></ul>
+                <input type="text" id="new-lobby" placeholder="New Lobby">
+                <button id="create-lobby">Create</button>
+            </div>
+            <div id="users">
+                <h3>Users Online</h3>
+                <ul id="user-list"></ul>
+            </div>
+            <div id="friends">
+                <h3>Friends</h3>
+                <ul id="friend-list"></ul>
+                <button id="refresh-friends">Refresh</button>
+            </div>
+            <button id="logout">Logout</button>
+        </div>
+        <div id="main">
+            <div id="messages"></div>
+            <div id="input-area">
+                <input type="text" id="message-input" placeholder="Type a message...">
+                <button id="send-btn">Send</button>
+            </div>
+        </div>
+    </div>
 
-  const rarities = {
-    common: { color: '#ffd700', value: 1, prob: 0.5 },
-    uncommon: { color: '#00ff00', value: 2, prob: 0.3 },
-    rare: { color: '#0000ff', value: 5, prob: 0.15 },
-    epic: { color: '#800080', value: 10, prob: 0.04 },
-    legendary: { color: '#ffa500', value: 20, prob: 0.01 },
-  };
+    <script>
+        // Data structures (saved to localStorage)
+        let currentUser = null;
+        let lobbies = JSON.parse(localStorage.getItem('lobbies')) || { global: { messages: [], users: [] } };
+        let users = JSON.parse(localStorage.getItem('users')) || {};
+        let friends = JSON.parse(localStorage.getItem('friends')) || {};
+        let friendRequests = JSON.parse(localStorage.getItem('friendRequests')) || {};
 
-  const player = {
-    x: worldWidth / 2,
-    y: worldHeight / 2,
-    size: 20,
-    speed: 5,
-    health: 100,
-    petals: [],
-    inventory: [],
-    slots: 10,
-    petalAngle: 0,
-    damage: 10,
-    useWASD: true,
-  };
-
-  const camera = {
-    x: player.x - canvas.width / 2,
-    y: player.y - canvas.height / 2,
-    zoom: 1,
-  };
-
-  const entities = [];
-  const entityTypes = [
-    { type: 'petal', size: 10, speed: 0 },
-    { type: 'bug', size: 15, color: '#8b0000', damage: 10, speed: 2 },
-  ];
-
-  // Spawn initial entities
-  for (let i = 0; i < 100; i++) {
-    spawnEntity('petal');
-    if (i % 5 === 0) spawnEntity('bug');
-  }
-
-  const keys = {};
-  window.addEventListener('keydown', e => {
-    keys[e.key] = true;
-    if (e.key === 'i') toggleInventory();
-    if (e.key === 'Enter' && document.activeElement !== chatInput) {
-      chatInput.focus();
-    }
-  });
-  window.addEventListener('keyup', e => keys[e.key] = false);
-
-  const startPage = document.getElementById('start-page');
-  const publicBtn = document.getElementById('public-btn');
-  const privateBtn = document.getElementById('private-btn');
-  const passwordInput = document.getElementById('password');
-  const chat = document.getElementById('chat');
-  const chatInput = document.getElementById('chat-input');
-  const inventoryDiv = document.getElementById('inventory');
-  const invContent = document.getElementById('inv-content');
-  const adminPanel = document.getElementById('admin-panel');
-  const adminBtn = document.getElementById('admin-btn');
-  const inventoryBtn = document.getElementById('inventory-btn');
-  const wasdToggle = document.getElementById('wasd-toggle');
-
-  publicBtn.addEventListener('click', startGame);
-  privateBtn.addEventListener('click', () => {
-    passwordInput.style.display = 'block';
-    passwordInput.addEventListener('keypress', e => {
-      if (e.key === 'Enter') startGame();
-    });
-  });
-  chatInput.addEventListener('keypress', e => {
-    if (e.key === 'Enter' && chatInput.value.trim()) {
-      addChatMessage('You: ' + chatInput.value);
-      chatInput.value = '';
-    }
-  });
-  adminBtn.addEventListener('click', () => adminPanel.style.display = adminPanel.style.display === 'none' ? 'block' : 'none');
-  inventoryBtn.addEventListener('click', toggleInventory);
-  wasdToggle.addEventListener('change', () => player.useWASD = wasdToggle.checked);
-
-  function startGame() {
-    startPage.style.display = 'none';
-    canvas.style.display = 'block';
-    chat.style.display = 'block';
-    chatInput.style.display = 'block';
-    addChatMessage('System: Welcome to the game!');
-  }
-
-  function addChatMessage(msg) {
-    const p = document.createElement('p');
-    p.textContent = msg;
-    chat.appendChild(p);
-    chat.scrollTop = chat.scrollHeight;
-  }
-
-  function toggleInventory() {
-    inventoryDiv.style.display = inventoryDiv.style.display === 'none' ? 'block' : 'none';
-    if (inventoryDiv.style.display === 'block') updateInventoryUI();
-  }
-
-  function updateInventoryUI() {
-    invContent.innerHTML = '';
-    const groups = {};
-    player.inventory.forEach(p => {
-      if (!groups[p.rarity]) groups[p.rarity] = [];
-      groups[p.rarity].push(p);
-    });
-    for (let r in groups) {
-      const h = document.createElement('h4');
-      h.textContent = r.charAt(0).toUpperCase() + r.slice(1);
-      invContent.appendChild(h);
-      groups[r].forEach((p, i) => {
-        const btn = document.createElement('button');
-        btn.textContent = `Petal ${i+1} (${p.value})`;
-        btn.style.background = rarities[r].color;
-        btn.addEventListener('click', () => equipPetal(p));
-        invContent.appendChild(btn);
-      });
-    }
-  }
-
-  function equipPetal(p) {
-    if (player.petals.length < player.slots) {
-      player.petals.push(p);
-      player.inventory = player.inventory.filter(item => item !== p);
-    } else {
-      // Swap with last petal
-      const last = player.petals.pop();
-      player.petals.push(p);
-      player.inventory.push(last);
-      player.inventory = player.inventory.filter(item => item !== p);
-    }
-    updateInventoryUI();
-  }
-
-  function getRandomRarity() {
-    const rand = Math.random();
-    let cum = 0;
-    for (let r in rarities) {
-      cum += rarities[r].prob;
-      if (rand <= cum) return r;
-    }
-    return 'common';
-  }
-
-  function spawnEntity(type, rarity) {
-    const config = entityTypes.find(t => t.type === type);
-    const r = rarity || (type === 'petal' ? getRandomRarity() : null);
-    entities.push({
-      type: type,
-      x: Math.random() * (worldWidth - 20) + 10,
-      y: Math.random() * (worldHeight - 20) + 10,
-      size: config.size,
-      color: r ? rarities[r].color : config.color,
-      value: r ? rarities[r].value : (config.value || 0),
-      damage: config.damage || 0,
-      dx: (Math.random() - 0.5) * config.speed,
-      dy: (Math.random() - 0.5) * config.speed,
-      rarity: r,
-    });
-  }
-
-  window.adminSpawn = () => {
-    const type = document.getElementById('spawn-type').value.split('_')[0];
-    const rarity = document.getElementById('spawn-type').value.split('_')[1];
-    spawnEntity(type, rarity);
-  };
-
-  window.adminAction = (action) => {
-    const player = document.getElementById('player-select').value;
-    console.log(`${action} on ${player}`);
-    addChatMessage(`Admin: ${action} on ${player}`);
-  };
-
-  function movePlayer() {
-    let dx = 0, dy = 0;
-    if (player.useWASD) {
-      if (keys.w || keys.ArrowUp) dy -= player.speed;
-      if (keys.s || keys.ArrowDown) dy += player.speed;
-      if (keys.a || keys.ArrowLeft) dx -= player.speed;
-      if (keys.d || keys.ArrowRight) dx += player.speed;
-    } else {
-      if (keys.ArrowUp) dy -= player.speed;
-      if (keys.ArrowDown) dy += player.speed;
-      if (keys.ArrowLeft) dx -= player.speed;
-      if (keys.ArrowRight) dx += player.speed;
-    }
-
-    if (dx !== 0 && dy !== 0) {
-      dx *= 0.707;
-      dy *= 0.707;
-    }
-
-    player.x = Math.max(player.size, Math.min(worldWidth - player.size, player.x + dx));
-    player.y = Math.max(player.size, Math.min(worldHeight - player.size, player.y + dy));
-
-    camera.x = player.x - canvas.width / 2;
-    camera.y = player.y - canvas.height / 2;
-    camera.x = Math.max(0, Math.min(worldWidth - canvas.width, camera.x));
-    camera.y = Math.max(0, Math.min(worldHeight - canvas.height, camera.y));
-  }
-
-  function moveEntities() {
-    entities.forEach(e => {
-      if (e.speed === 0) return;
-      e.x += e.dx;
-      e.y += e.dy;
-      if (e.x < e.size || e.x > worldWidth - e.size) e.dx = -e.dx;
-      if (e.y < e.size || e.y > worldHeight - e.size) e.dy = -e.dy;
-    });
-  }
-
-  function updatePetals() {
-    player.petalAngle += 0.05;
-    player.petals.forEach((p, i) => {
-      p.angle = player.petalAngle + (i * 2 * Math.PI / player.petals.length);
-      p.x = player.x + Math.cos(p.angle) * (30 + player.petals.length * 2);
-      p.y = player.y + Math.sin(p.angle) * (30 + player.petals.length * 2);
-    });
-  }
-
-  function checkCollisions() {
-    for (let i = entities.length - 1; i >= 0; i--) {
-      const e = entities[i];
-      const dist = Math.hypot(player.x - e.x, player.y - e.y);
-      if (dist < player.size + e.size) {
-        if (e.type === 'petal') {
-          entities.splice(i, 1);
-          score += e.value;
-          const petal = { x: player.x, y: player.y, size: e.size, color: e.color, angle: 0, value: e.value, rarity: e.rarity };
-          if (player.petals.length < player.slots) {
-            player.petals.push(petal);
-          } else {
-            player.inventory.push(petal);
-          }
-          document.getElementById('score').textContent = `Petals: ${score}`;
-          spawnEntity('petal');
-        } else if (e.type === 'bug') {
-          player.health -= e.damage;
-          health = player.health;
-          document.getElementById('health').textContent = `Health: ${health}`;
-          if (player.health <= 0) {
-            alert('Game Over! Score: ' + score);
-            player.health = 100;
-            score = 0;
-            player.petals = [];
-            player.inventory = [];
-            document.getElementById('score').textContent = `Petals: ${score}`;
-            document.getElementById('health').textContent = `Health: ${health}`;
-          }
+        // Save data
+        function saveData() {
+            localStorage.setItem('lobbies', JSON.stringify(lobbies));
+            localStorage.setItem('users', JSON.stringify(users));
+            localStorage.setItem('friends', JSON.stringify(friends));
+            localStorage.setItem('friendRequests', JSON.stringify(friendRequests));
         }
-      }
-    }
 
-    player.petals.forEach(p => {
-      for (let i = entities.length - 1; i >= 0; i--) {
-        const e = entities[i];
-        if (e.type === 'bug') {
-          const dist = Math.hypot(p.x - e.x, p.y - e.y);
-          if (dist < p.size + e.size) {
-            entities.splice(i, 1);
-            spawnEntity('bug');
-          }
+        // Auth
+        document.getElementById('auth-form').addEventListener('submit', (e) => {
+            e.preventDefault();
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            if (users[username] && users[username].password === password) {
+                currentUser = { name: username, online: true };
+                users[username].online = true;
+                saveData();
+                showChat();
+            } else {
+                alert('Invalid credentials');
+            }
+        });
+
+        document.getElementById('register-btn').addEventListener('click', () => {
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            if (!users[username]) {
+                users[username] = { password, online: true };
+                currentUser = { name: username, online: true };
+                saveData();
+                showChat();
+            } else {
+                alert('Username taken');
+            }
+        });
+
+        function showChat() {
+            document.getElementById('login').style.display = 'none';
+            document.getElementById('chat').style.display = 'flex';
+            updateUI();
         }
-      }
-    });
-  }
 
-  function drawPetal(x, y, size, color) {
-    ctx.fillStyle = color;
-    ctx.beginPath();
-    for (let i = 0; i < 5; i++) {
-      const angle = i * 2 * Math.PI / 5;
-      ctx.lineTo(x + Math.cos(angle) * size * 1.5, y + Math.sin(angle) * size * 1.5);
-      ctx.lineTo(x + Math.cos(angle + Math.PI / 5) * size * 0.5, y + Math.sin(angle + Math.PI / 5) * size * 0.5);
-    }
-    ctx.closePath();
-    ctx.fill();
-  }
+        // Lobbies
+        let currentLobby = 'global';
+        document.getElementById('create-lobby').addEventListener('click', () => {
+            const name = document.getElementById('new-lobby').value.trim();
+            if (name && !lobbies[name]) {
+                lobbies[name] = { messages: [], users: [] };
+                saveData();
+                updateLobbies();
+            }
+        });
 
-  function draw() {
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+        function updateLobbies() {
+            const list = document.getElementById('lobby-list');
+            list.innerHTML = '';
+            Object.keys(lobbies).forEach(lobby => {
+                const li = document.createElement('li');
+                li.textContent = lobby;
+                li.classList.toggle('active', lobby === currentLobby);
+                li.addEventListener('click', () => {
+                    currentLobby = lobby;
+                    updateLobbies();
+                    updateMessages();
+                });
+                list.appendChild(li);
+            });
+        }
 
-    ctx.save();
-    ctx.translate(-camera.x, -camera.y);
+        // Users
+        function updateUsers() {
+            const list = document.getElementById('user-list');
+            list.innerHTML = '';
+            Object.keys(users).filter(u => users[u].online && u !== currentUser.name).forEach(user => {
+                const li = document.createElement('li');
+                li.textContent = user;
+                li.addEventListener('click', () => privMsg(user));
+                // Friend request button
+                const btn = document.createElement('button');
+                btn.textContent = 'Friend Req';
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    sendFriendRequest(user);
+                });
+                li.appendChild(btn);
+                list.appendChild(li);
+            });
+        }
 
-    // Draw grid
-    ctx.strokeStyle = '#556b2f';
-    ctx.lineWidth = 1;
-    for (let x = 0; x < worldWidth; x += 50) {
-      ctx.beginPath();
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x, worldHeight);
-      ctx.stroke();
-    }
-    for (let y = 0; y < worldHeight; y += 50) {
-      ctx.beginPath();
-      ctx.moveTo(0, y);
-      ctx.lineTo(worldWidth, y);
-      ctx.stroke();
-    }
+        // Friends
+        function updateFriends() {
+            const list = document.getElementById('friend-list');
+            list.innerHTML = '';
+            const myFriends = friends[currentUser.name] || [];
+            myFriends.forEach(friend => {
+                const li = document.createElement('li');
+                li.textContent = friend;
+                li.addEventListener('click', () => privMsg(friend));
+                list.appendChild(li);
+            });
+        }
 
-    // Draw entities
-    entities.forEach(e => {
-      if (e.type === 'petal') {
-        drawPetal(e.x, e.y, e.size, e.color);
-      } else {
-        ctx.fillStyle = e.color;
-        ctx.beginPath();
-        ctx.arc(e.x, e.y, e.size, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = '#fff';
-        ctx.beginPath();
-        ctx.arc(e.x - 5, e.y - 5, 2, 0, Math.PI * 2);
-        ctx.arc(e.x + 5, e.y - 5, 2, 0, Math.PI * 2);
-        ctx.fill();
-      }
-    });
+        document.getElementById('refresh-friends').addEventListener('click', updateFriends);
 
-    // Draw player
-    ctx.fillStyle = '#ff69b4';
-    ctx.beginPath();
-    ctx.arc(player.x, player.y, player.size, 0, Math.PI * 2);
-    ctx.fill();
+        function sendFriendRequest(to) {
+            if (!friendRequests[to]) friendRequests[to] = [];
+            if (!friendRequests[to].includes(currentUser.name)) {
+                friendRequests[to].push(currentUser.name);
+                saveData();
+                alert(`Friend request sent to ${to}`);
+            }
+        }
 
-    // Draw orbiting petals
-    player.petals.forEach(p => {
-      drawPetal(p.x, p.y, p.size, p.color);
-    });
+        // Accept friend request (simplified, check on load or something; for demo, assume manual)
+        // In a real app, this would be notified.
 
-    // Health bar
-    ctx.fillStyle = '#ff4040';
-    ctx.fillRect(player.x - 20, player.y - 30, (player.health / 100) * 40, 5);
-    ctx.strokeStyle = '#000';
-    ctx.strokeRect(player.x - 20, player.y - 30, 40, 5);
+        // Private Messaging
+        let currentPriv = null;
+        function privMsg(user) {
+            currentPriv = user;
+            currentLobby = `priv_${user}`;
+            if (!lobbies[currentLobby]) lobbies[currentLobby] = { messages: [], users: [currentUser.name, user] };
+            updateLobbies();
+            updateMessages();
+        }
 
-    ctx.restore();
-  }
+        // Messages
+        document.getElementById('send-btn').addEventListener('click', sendMessage);
+        document.getElementById('message-input').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') sendMessage();
+        });
 
-  function gameLoop() {
-    if (startPage.style.display !== 'none') return;
-    movePlayer();
-    moveEntities();
-    updatePetals();
-    checkCollisions();
-    draw();
-    requestAnimationFrame(gameLoop);
-  }
+        function sendMessage() {
+            const input = document.getElementById('message-input');
+            const msg = input.value.trim();
+            if (msg) {
+                if (!lobbies[currentLobby].messages) lobbies[currentLobby].messages = [];
+                lobbies[currentLobby].messages.push({ from: currentUser.name, text: msg, timestamp: Date.now() });
+                if (currentPriv) {
+                    // Simulate sending to other user (in real app, use WebSockets)
+                    console.log(`Private msg to ${currentPriv}: ${msg}`);
+                }
+                saveData();
+                input.value = '';
+                updateMessages();
+            }
+        }
 
-  gameLoop();
-})();
-</script>
+        function updateMessages() {
+            const div = document.getElementById('messages');
+            div.innerHTML = '';
+            if (lobbies[currentLobby] && lobbies[currentLobby].messages) {
+                lobbies[currentLobby].messages.forEach(m => {
+                    const msgDiv = document.createElement('div');
+                    msgDiv.classList.add('message', m.from === currentUser.name ? 'own' : '');
+                    if (currentPriv) msgDiv.classList.add('private');
+                    msgDiv.innerHTML = `<strong>${m.from}:</strong> ${m.text} <small>${new Date(m.timestamp).toLocaleTimeString()}</small>`;
+                    div.appendChild(msgDiv);
+                });
+            }
+            div.scrollTop = div.scrollHeight;
+        }
+
+        // Update UI
+        function updateUI() {
+            updateLobbies();
+            updateUsers();
+            updateFriends();
+            updateMessages();
+            // Poll for updates (in real app, use WebSockets)
+            setInterval(updateUI, 5000);
+        }
+
+        // Logout
+        document.getElementById('logout').addEventListener('click', () => {
+            if (currentUser) {
+                users[currentUser.name].online = false;
+                saveData();
+            }
+            currentUser = null;
+            document.getElementById('chat').style.display = 'none';
+            document.getElementById('login').style.display = 'flex';
+            document.getElementById('username').value = '';
+            document.getElementById('password').value = '';
+        });
+
+        // Init
+        if (currentUser) showChat(); // Auto login if already
+    </script>
 </body>
 </html>
